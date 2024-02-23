@@ -1,21 +1,16 @@
 import { APIGatewayProxyHandlerV2 } from "aws-lambda";
-import { Handler } from "aws-lambda";
+
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, QueryCommand, QueryCommandInput } from "@aws-sdk/lib-dynamodb";
 
-const ddbDocClient = createDDbDocClient();
+const ddbDocClient = createDocumentClient();
 
-export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {     // Note change
+export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
   try {
-    
-    // Print Event
-    // console.log("Event: ", JSON.stringify(event?.queryStringParameters));
-    // const parameters = event?.queryStringParameters;
-    // const movieId = parameters ? parseInt(parameters.movieId) : undefined;
-
     console.log("Event: ", event);
     const parameters  = event?.pathParameters;
     const movieId = parameters?.movieId ? parseInt(parameters.movieId) : undefined;
+    const hasCast = event.queryStringParameters?.cast === "true";
 
     if (!movieId) {
       return {
@@ -43,9 +38,29 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {    
         body: JSON.stringify({ Message: "Invalid movie Id" }),
       };
     }
-    const body = {
+    let body = {
       data: commandOutput.Item,
     };
+
+    let commandInput: QueryCommandInput = {
+      TableName: process.env.MOVIE_CAST_TABLE,
+    };
+    
+    if (hasCast) {
+      commandInput = {
+        ...commandInput,
+        KeyConditionExpression: "movieId = :movieId",
+        ExpressionAttributeValues: {
+          ":movieId": movieId,
+        },
+      };
+
+      const castCommandOutput = await ddbDocClient.send(
+        new QueryCommand(commandInput)
+      );
+        
+      body.data.cast = castCommandOutput.Items;
+    }
 
     // Return Response
     return {
@@ -67,7 +82,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {    
   }
 };
 
-function createDDbDocClient() {
+function createDocumentClient() {
   const ddbClient = new DynamoDBClient({ region: process.env.REGION });
   const marshallOptions = {
     convertEmptyValues: true,
